@@ -56,44 +56,54 @@ namespace OnlineSales.Controllers
             }
             catch (Exception ex)
             {
-                context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-                var em = errorMessageGenerator.CreateErrorMessage<InnerErrorCodes.Status500>(StatusCodes.Status500InternalServerError, InnerErrorCodes.Status500.ExceptionCaught, ex.GetType().Name);
-                em.ErrorDescription = ex.Message;
-                await WriteToStream(JsonSerializer.Serialize(em, IErrorMessageGenerator.ErrorHandlingSerializerOptions), originBody);
-                context.Response.Body = originBody;
-                return;
+                if (!context.Response.HasStarted)
+                {
+                    context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                    var em = errorMessageGenerator.CreateErrorMessage<InnerErrorCodes.Status500>(StatusCodes.Status500InternalServerError, InnerErrorCodes.Status500.ExceptionCaught, ex.GetType().Name);
+                    em.ErrorDescription = ex.Message;
+                    await WriteToStream(JsonSerializer.Serialize(em, IErrorMessageGenerator.ErrorHandlingSerializerOptions), originBody);
+                    context.Response.Body = originBody;
+                    return;
+                }
+                else
+                {
+                    throw;
+                }
             }
 
-            memStream.Position = 0;
-            var responseBody = new StreamReader(memStream).ReadToEnd();
-                        
-            if (context.Response.StatusCode < 200 || context.Response.StatusCode >= 300)
+            if (!context.Response.HasStarted)
             {
-                try
+                memStream.Position = 0;
+                var responseBody = new StreamReader(memStream).ReadToEnd();
+
+                if (context.Response.StatusCode < 200 || context.Response.StatusCode >= 300)
                 {
-                    var em = GetErrorMessageFromBody(responseBody);
-                    if (em == null)
+                    try
                     {
-                        var standartErrorMessage = new ErrorMessage();
-                        standartErrorMessage.Status = context.Response.StatusCode;
-                        standartErrorMessage.Code = InnerErrorCodes.UnspecifiedError.Code;
-                        standartErrorMessage.Title = InnerErrorCodes.UnspecifiedError.Title;
-                        standartErrorMessage.Arguments = null;
-                        standartErrorMessage.Instance = null;
-                        standartErrorMessage.Extensions.Clear();
-                        standartErrorMessage.Type = null;
-                        responseBody = JsonSerializer.Serialize(standartErrorMessage, IErrorMessageGenerator.ErrorHandlingSerializerOptions);
+                        var em = GetErrorMessageFromBody(responseBody);
+                        if (em == null)
+                        {
+                            var standartErrorMessage = new ErrorMessage();
+                            standartErrorMessage.Status = context.Response.StatusCode;
+                            standartErrorMessage.Code = InnerErrorCodes.UnspecifiedError.Code;
+                            standartErrorMessage.Title = InnerErrorCodes.UnspecifiedError.Title;
+                            standartErrorMessage.Arguments = null;
+                            standartErrorMessage.Instance = null;
+                            standartErrorMessage.Extensions.Clear();
+                            standartErrorMessage.Type = null;
+                            responseBody = JsonSerializer.Serialize(standartErrorMessage, IErrorMessageGenerator.ErrorHandlingSerializerOptions);
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        // do nothing
                     }
                 }
-                catch (Exception)
-                {
-                    // do nothing
-                }                
+
+                await WriteToStream(responseBody, originBody);
+
+                context.Response.Body = originBody;
             }
-
-            await WriteToStream(responseBody, originBody);
-
-            context.Response.Body = originBody;
         }
 
         private async Task WriteToStream(string data, Stream dest)
